@@ -77,7 +77,7 @@ enum LevelState
   Normal = 0,
   Warn = 1,
   Shutoff = 2
-}
+};
 
 #include "DHT.h"
 #include <BH1750.h>
@@ -154,6 +154,12 @@ float ppm = 0;
 float tankHeight_1 = 30.0; // <-- NEW (change this value)
 float tankHeight_2 = 30.0; // <-- NEW (change this value)
 
+// functions
+void Flow1();
+void Flow2();
+void Flow3();
+void Flow4();
+
 void setup()
 {
   // Initialize the flow sensors
@@ -162,8 +168,8 @@ void setup()
   pinMode(flowPin_3, INPUT);
   pinMode(flowPin_4, INPUT);
   pinMode(warnLEDPin, OUTPUT);
-  pinMode(pumpShutoffPin, OUTPUT)
-      digitalWrite(warnLEDPin, LOW);
+  pinMode(pumpShutoffPin, OUTPUT);
+  digitalWrite(warnLEDPin, LOW);
   digitalWrite(pumpShutoffPin, LOW); // initialize pump shutoff and LED as off
   Serial.begin(9600);
   attachInterrupt(digitalPinToInterrupt(flowPin_1), Flow1, RISING);
@@ -193,8 +199,9 @@ void setup()
     Serial.println("Time (ms), PH, Light (lx), Humidity (%), Ambient Temp (°C), Liquid Temp (°C), TDS (ppm), Water Level 1 (cm), Water Level 2 (cm), Flow Rate 1 (L/min), Flow Rate 2 (L/min), Flow Rate 3 (L/min)"); // CSV header
 }
 
-unsigned long levelTime = 0 // time when water level event was sensed
-    void loop()
+unsigned long levelTime = 0; // time when water level event was sensed
+
+void loop()
 {
   humPercent = dht.readHumidity();
   ambTemp = dht.readTemperature();
@@ -235,6 +242,7 @@ unsigned long levelTime = 0 // time when water level event was sensed
   float distance_2;
   float waterLevel_1; // <-- NEW Variable to store calculated water level
   float waterLevel_2;
+  float avg_level;
 
   // Trigger ultrasonic pulse
   digitalWrite(TRIG_1, LOW); // when pin is low no sound is emitted
@@ -301,17 +309,19 @@ unsigned long levelTime = 0 // time when water level event was sensed
       break;
     }
   }
-  else if (highWarnLevel > avg_level > lowWarnLevel) // we are in ideal range
+  else if (highWarnLevel > avg_level && avg_level > lowWarnLevel) // we are in ideal range
   {
     switch (levelState)
+    {
     case Normal:
       // continue ideal operation
       break;
-  default: // we recovered from a warning or shutoff state
-    levelState = Normal;
-    digitalWrite(warnLEDPin, LOW);
-    digitalWrite(pumpShutoffPin, LOW);
-    break;
+    default: // we recovered from a warning or shutoff state
+      levelState = Normal;
+      digitalWrite(warnLEDPin, LOW);
+      digitalWrite(pumpShutoffPin, LOW);
+      break;
+    }
   }
   else if (avg_level >= highWarnLevel || avg_level <= lowWarnLevel) // we are in either warning zone
   {
