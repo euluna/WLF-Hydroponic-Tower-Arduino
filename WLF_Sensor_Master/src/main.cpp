@@ -4,6 +4,7 @@ REQUIRES the Arduino libraries:
 - Adafruit Unified Sensor Lib: https://github.com/adafruit/Adafruit_Sensor
 - OneWire Library: https://github.com/PaulStoffregen/OneWire
 - DallasTemperature: https://github.com/milesburton/Arduino-Temperature-Control-Library
+- PinChangeInterrupt: https://github.com/NicoHood/PinChangeInterrupt
 
 PH Sensor Connections:
 - Red Wire to 5V
@@ -84,6 +85,7 @@ enum LevelState
 #include <Wire.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <PinChangeInterrupt.h>
 #define ONE_WIRE_BUS 2 // digital pin connected to DAT on sensor
 #define DHTPIN 3       // alternatively, use pins 3, 4, 5, 12, 13, or 14
 #define DHTTYPE DHT11
@@ -221,10 +223,13 @@ void initHardware()
   digitalWrite(warnLEDPin, LOW);
   digitalWrite(pumpShutoffPin, LOW); // initialize pump shutoff and LED as off
   Serial.begin(9600);
-  attachInterrupt(digitalPinToInterrupt(flowPin_1), Flow1, RISING);
-  attachInterrupt(digitalPinToInterrupt(flowPin_2), Flow2, RISING);
-  attachInterrupt(digitalPinToInterrupt(flowPin_3), Flow3, RISING);
-  attachInterrupt(digitalPinToInterrupt(flowPin_4), Flow4, RISING);
+
+  // FIX: pins dont support hardware interrupts. use library to handle. CHECK IF ACTUALLY WORKS
+  attachPCINT(digitalPinToPCINT(flowPin_1), Flow1, RISING);
+  attachPCINT(digitalPinToPCINT(flowPin_2), Flow2, RISING);
+  attachPCINT(digitalPinToPCINT(flowPin_3), Flow3, RISING);
+  attachPCINT(digitalPinToPCINT(flowPin_4), Flow4, RISING);
+
   // Initialize the I2C bus (BH1750 library doesn't do this automatically)
   Wire.begin();
   // Wire2.begin(18,19);
