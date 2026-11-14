@@ -69,8 +69,69 @@ Warning LED:
 
 Pump Shutoff:
 - Input to Digital Pin 16
-
 */
+
+#include "DHT.h"
+#include <BH1750.h>
+#include <Wire.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// ==========================================
+// PIN DEFINITIONS & CONSTANTS
+// ==========================================
+
+// Environment Sensors
+#define DHTPIN 3
+#define DHTTYPE DHT11
+
+// Water Level (Ultrasonic)
+#define TRIG_1 9
+#define ECHO_1 10
+#define TRIG_2 11
+#define ECHO_2 12
+
+// Water Quality
+#define ONE_WIRE_BUS 2
+const int phPin = A0;
+const int tdsPin = A3;
+
+// Flow Sensors
+const int flowPin_1 = 5;
+const int flowPin_2 = 6;
+const int flowPin_3 = 7;
+const int flowPin_4 = 8;
+
+// System Controls
+// FOR JACOB: Determine these values
+const int warnLEDPin = 15;
+const int pumpShutoffPin = 16;
+
+// ==========================================
+// CONFIGURATION VARIABLES
+// ==========================================
+
+// Reservoir Levels (cm)
+// The distance of the Ultrasonic sensor to bottom of reservoir
+// Measure from the sensor face down to the bottom of the reservoir
+float tankHeight_1 = 30.0;  // <-- NEW (change this value)
+float tankHeight_2 = 30.0;  // <-- NEW (change this value)
+float maxLevel = 50.0;      // Max level to shutoff before overflow
+float highWarnLevel = 45.0; // High water level warning
+float lowWarnLevel = 10.0;  // Low water level warning
+float minLevel = 5.0;       // Min level to shutoff before running dry
+
+// Timing & Calibration
+const unsigned long levelDelay = 5000; // 5-second delay before triggering state changes
+const int recordPeriod = 2;            // Delay between data readings (seconds)
+const float flowSensorConstant = 5.5;  // Flow sensor calibration constant
+const float phSlope = 4.87012897;
+const float phOffset = -2.306816462;
+const bool printLabels = true;
+
+// ==========================================
+// GLOBAL STATE & SENSOR OBJECTS
+// ==========================================
 
 enum LevelState
 {
@@ -78,173 +139,153 @@ enum LevelState
   Warn = 1,
   Shutoff = 2
 };
-
-#include "DHT.h"
-#include <BH1750.h>
-#include <Wire.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
-#define ONE_WIRE_BUS 2 // digital pin connected to DAT on sensor
-#define DHTPIN 3       // alternatively, use pins 3, 4, 5, 12, 13, or 14
-#define DHTTYPE DHT11
-// waterlevel
-#define TRIG_1 9  // sound pluse is to pin 9
-#define ECHO_1 10 // echo is pin 10
-#define TRIG_2 11 // sound pluse is to pin 9
-#define ECHO_2 12 // echo is pin 10
-
 LevelState levelState = Normal;
-// FOR JACOB: Determine these values
-const int warnLEDPin = 15;
-const int pumpShutoffPin = 16;
-float maxLevel = 50;                   // the max level to shutoff before the reservoir overflows
-float highWarnLevel = 45;              // reservoir high water level warning
-float lowWarnLevel = 10;               // reservoir low water level warning
-float minLevel = 5;                    // the min level to shutoff before reservoir gets too low
-const unsigned long levelDelay = 5000; // 5 second delay between waterlevel trigger and event firing (shutoff / warning)
+unsigned long levelTime = 0;
+unsigned long currTime = 0;
 
-int phPin = A0;
-float phVolt;
-float ph = 0;
-// calibration constants
-float slope = 4.87012897;
-float offset = -2.306816462;
-
+// Sensor Objects
 DHT dht(DHTPIN, DHTTYPE);
-bool printLabels = true; // if CSV header should be included
-float humPercent;
-float ambTemp;
-
-int flowPin_1 = 5;              // pin can be modified as desired
-int flowPin_2 = 6;              // pin can be modified as desired
-int flowPin_3 = 7;              // pin can be modified as desired
-int flowPin_4 = 8;              // pin can be modified as desired
-double flowRate_1;              // main value to record
-double flowRate_2;              // main value to record
-double flowRate_3;              // main value to record
-double flowRate_4;              // main value to record
-float flowSensorConstant = 5.5; // according to datasheet, should be 5.5 (uncalibrated)
-volatile int flowCount_1;
-volatile int flowCount_2;
-volatile int flowCount_3;
-volatile int flowCount_4;
-
 BH1750 lightMeter_1;
 // BH1750 lightMeter_2;
 // BH1750 lightMeter_3;
-int recordPeriod = 2; // delay between data readings, in seconds
-
-float lux_1;
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
-int tdsPin = A3;
-int tdsOutput = 0;
+// Sensor Readings
+float humPercent, ambTemp;
+float lux_1;
+// float lux_2;
+// float lux_3;
+float phVolt, ph;
+float tempC;
+float voltagetds, ppm;
+float waterLevel_1, waterLevel_2, avg_level;
 
-float tempC = 0;
+// Flow Rates & Counters
+double flowRate_1, flowRate_2, flowRate_3, flowRate_4;
+volatile int flowCount_1 = 0;
+volatile int flowCount_2 = 0;
+volatile int flowCount_3 = 0;
+volatile int flowCount_4 = 0;
 
-float voltagetds = 0;
-float ppm = 0;
+// Interrupt Service Routines
+void Flow1() { flowCount_1++; }
+void Flow2() { flowCount_2++; }
+void Flow3() { flowCount_3++; }
+void Flow4() { flowCount_4++; }
 
-// -------------------------------------------------------------
-// NEW: The distance of the Ultrasonic sensor to bottom of reservoir
-// Measure from the sensor face down to the bottom of the reservoir
-// -------------------------------------------------------------
-float tankHeight_1 = 30.0; // <-- NEW (change this value)
-float tankHeight_2 = 30.0; // <-- NEW (change this value)
-
-// functions
-void Flow1();
-void Flow2();
-void Flow3();
-void Flow4();
+// ==========================================
+// SETUP
+// ==========================================
 
 void setup()
 {
-  // Initialize the flow sensors
-  pinMode(flowPin_1, INPUT); // set input pins
-  pinMode(flowPin_2, INPUT);
-  pinMode(flowPin_3, INPUT);
-  pinMode(flowPin_4, INPUT);
+  Serial.begin(9600);
+  initHardware();
+
+  if (printLabels)
+  {
+    Serial.println("Time (ms), PH, Light (lx), Humidity (%), Ambient Temp (°C), Liquid Temp (°C), TDS (ppm), Water Level 1 (cm), Water Level 2 (cm), Flow Rate 1 (L/min), Flow Rate 2 (L/min), Flow Rate 3 (L/min)"); // CSV header
+  }
+}
+
+// ==========================================
+// MAIN LOOP
+// ==========================================
+
+void loop()
+{
+  readEnvironment();
+  readWaterQuality();
+  readWaterLevel();
+
+  processFlowRatesAndDelay(); // Handles the interrupt counting window
+
+  currTime = millis();
+  updateSystemControls();
+  logData();
+}
+
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
+void initHardware()
+{
+  // Actuators
   pinMode(warnLEDPin, OUTPUT);
   pinMode(pumpShutoffPin, OUTPUT);
   digitalWrite(warnLEDPin, LOW);
   digitalWrite(pumpShutoffPin, LOW); // initialize pump shutoff and LED as off
-  Serial.begin(9600);
+
+  // Flow Sensors
+  pinMode(flowPin_1, INPUT);
+  pinMode(flowPin_2, INPUT);
+  pinMode(flowPin_3, INPUT);
+  pinMode(flowPin_4, INPUT);
   attachInterrupt(digitalPinToInterrupt(flowPin_1), Flow1, RISING);
   attachInterrupt(digitalPinToInterrupt(flowPin_2), Flow2, RISING);
   attachInterrupt(digitalPinToInterrupt(flowPin_3), Flow3, RISING);
   attachInterrupt(digitalPinToInterrupt(flowPin_4), Flow4, RISING);
-  // Initialize the I2C bus (BH1750 library doesn't do this automatically)
-  Wire.begin();
-  // Wire2.begin(18,19);
-  // Wire3.begin(16,17);
-  lightMeter_1.begin();
-  lightMeter_1.configure(BH1750::CONTINUOUS_HIGH_RES_MODE);
-  // lightMeter_2.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire);
-  // lightMeter_3.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire3);
-  //  Initialize the DHT sensor
-  dht.begin();
-  // initialize tds
-  sensors.begin();
-  // waterlevel
+
+  // Ultrasonic Sensors
   pinMode(TRIG_1, OUTPUT); // sound pulse is output
   pinMode(ECHO_1, INPUT);  // Echo is input
   pinMode(TRIG_2, OUTPUT); // sound pulse is output
   pinMode(ECHO_2, INPUT);  // Echo is input
-  // pullup resistor temp sensor
+
+  // Temperature Pullup
   pinMode(ONE_WIRE_BUS, INPUT_PULLUP);
-  if (printLabels)
-    Serial.println("Time (ms), PH, Light (lx), Humidity (%), Ambient Temp (°C), Liquid Temp (°C), TDS (ppm), Water Level 1 (cm), Water Level 2 (cm), Flow Rate 1 (L/min), Flow Rate 2 (L/min), Flow Rate 3 (L/min)"); // CSV header
+
+  // Initialize I2C and Sensors
+  Wire.begin();
+  // Wire2.begin(18,19);
+  // Wire3.begin(16,17);
+
+  lightMeter_1.begin();
+  lightMeter_1.configure(BH1750::CONTINUOUS_HIGH_RES_MODE);
+  // lightMeter_2.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire);
+  // lightMeter_3.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire3);
+
+  dht.begin();
+  sensors.begin();
 }
 
-unsigned long levelTime = 0; // time when water level event was sensed
-
-void loop()
+void readEnvironment()
 {
   humPercent = dht.readHumidity();
   ambTemp = dht.readTemperature();
 
-  // repeat loop early if failed read
+  // Skip further readings if DHT fails (will retry next loop)
   if (isnan(humPercent) || isnan(ambTemp))
     return;
 
-  // light
   lux_1 = lightMeter_1.readLightLevel();
   // lux_2 = lightMeter_2.readLightLevel();
   // lux_3 = lightMeter_3.readLightLevel();
+}
 
-  // ph
+void readWaterQuality()
+{
+  // PH
   int sensorValue = analogRead(phPin);
   phVolt = sensorValue * (5.0 / 1023.0); // convert reading to voltage
-  ph = slope * phVolt + offset;
+  ph = phSlope * phVolt + phOffset;
 
-  // flow
-  flowCount_1 = 0;
-  flowCount_2 = 0;
-  flowCount_3 = 0;
-  flowCount_4 = 0;
-
-  // temp sensor
+  // Temperature
   sensors.requestTemperatures();
   tempC = sensors.getTempCByIndex(0); // read first sensor
 
-  // analog tds sensor
-  tdsOutput = analogRead(tdsPin);
+  // TDS
+  int tdsOutput = analogRead(tdsPin);
   voltagetds = tdsOutput * (5.0 / 1023.0);
   ppm = (voltagetds * 1000 / 500) * 1.1;
+}
 
-  // waterlevel Sensor
-  long duration_1;
-  long duration_2;
-  float distance_1;
-  float distance_2;
-  float waterLevel_1; // <-- NEW Variable to store calculated water level
-  float waterLevel_2;
-  float avg_level;
-
-  // Trigger ultrasonic pulse
+void readWaterLevel()
+{
+  // Trigger ultrasonic pulses
   digitalWrite(TRIG_1, LOW); // when pin is low no sound is emitted
   digitalWrite(TRIG_2, LOW); // when pin is low no sound is emitted
   delayMicroseconds(2);
@@ -255,41 +296,49 @@ void loop()
   digitalWrite(TRIG_2, LOW); // ends pulse
 
   // Measure return time
-  duration_1 = pulseIn(ECHO_1, HIGH); // pulseIn() function measures time in this case the time for which the echo pin is high
-  duration_2 = pulseIn(ECHO_2, HIGH);
+  long duration_1 = pulseIn(ECHO_1, HIGH); // measures time echo pin is high
+  long duration_2 = pulseIn(ECHO_2, HIGH);
 
   // Convert to distance (in cm)
-  distance_1 = duration_1 * 0.034 / 2; // 0.034 is the speed of sound  in cm per mircosecond
-  distance_2 = duration_2 * 0.034 / 2;
+  float distance_1 = duration_1 * 0.034 / 2; // 0.034 is speed of sound in cm/us
+  float distance_2 = duration_2 * 0.034 / 2;
 
-  // -------------------------------------------------------------
-  // NEW: Calculate the actual water level in the reservoir
-  // -------------------------------------------------------------
-  waterLevel_1 = tankHeight_1 - distance_1; // <-- NEW
+  // Calculate actual water level
+  waterLevel_1 = tankHeight_1 - distance_1;
   waterLevel_2 = tankHeight_2 - distance_2;
+  avg_level = (waterLevel_1 + waterLevel_2) / 2.0;
+}
 
-  interrupts();               // enable interrupt for recordDelay
-  delay(1000 * recordPeriod); // delay for some number of seconds
-  noInterrupts();             // disable interrupts again
+void processFlowRatesAndDelay()
+{
+  // Reset counters
+  flowCount_1 = 0;
+  flowCount_2 = 0;
+  flowCount_3 = 0;
+  flowCount_4 = 0;
 
+  // Allow interrupts to count pulses for the record period
+  interrupts();
+  delay(1000 * recordPeriod);
+  noInterrupts();
+
+  // Calculate L/min
   // since F=(5.5*Q), Q = F/5.5, where Q is in L/min and F is in Hz
-  flowRate_1 = flowCount_1 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
-  flowRate_2 = flowCount_2 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
-  flowRate_3 = flowCount_3 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
-  flowRate_4 = flowCount_4 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
+  // since count is # of pulses in last second, count is F in Hz
+  flowRate_1 = flowCount_1 / flowSensorConstant;
+  flowRate_2 = flowCount_2 / flowSensorConstant;
+  flowRate_3 = flowCount_3 / flowSensorConstant;
+  flowRate_4 = flowCount_4 / flowSensorConstant;
+}
 
-  unsigned long currTime = millis(); // current time at end of this iteration, after values level is calculated
-
-  // ---------------------------------------------------------- SYSTEM CONTROLS -------------------------------------------------------
-  // Send power to / away from hardware as needed
-
-  avg_level = (waterLevel_1 + waterLevel_2) / 2; // get average water level
-
-  if (avg_level >= maxLevel || avg_level <= minLevel) // we are above max level, or below min level
+void updateSystemControls()
+{
+  if (avg_level >= maxLevel || avg_level <= minLevel)
   {
+    // Extreme levels: we are above max level, or below min level
     switch (levelState)
     {
-    case Normal: // we were operating normally last iteration (sudden flood or sensor interference)
+    case Normal:
       // upgrade to warn mode, set timer
       levelState = Warn;
       levelTime = currTime;
@@ -309,25 +358,28 @@ void loop()
       break;
     }
   }
-  else if (highWarnLevel > avg_level && avg_level > lowWarnLevel) // we are in ideal range
+  else if (avg_level < highWarnLevel && avg_level > lowWarnLevel)
   {
+    // Ideal range: we are in ideal range
     switch (levelState)
     {
     case Normal:
       // continue ideal operation
       break;
-    default: // we recovered from a warning or shutoff state
+    default:
+      // we recovered from a warning or shutoff state
       levelState = Normal;
       digitalWrite(warnLEDPin, LOW);
       digitalWrite(pumpShutoffPin, LOW);
       break;
     }
   }
-  else if (avg_level >= highWarnLevel || avg_level <= lowWarnLevel) // we are in either warning zone
+  else
   {
+    // Intermediate levels: we are in either warning zone
     switch (levelState)
     {
-    case Normal: // was in normal operation at last cycle
+    case Normal:
       // set timer, and enter warning mode
       levelState = Warn;
       levelTime = currTime;
@@ -339,13 +391,18 @@ void loop()
         digitalWrite(warnLEDPin, HIGH); // turn on warning LED
       }
       break;
-    default: // came from shutoff state lowered into warning state
+    default:
+      // came from shutoff state lowered into warning state
       levelState = Warn;
-      // in this case, we are probably still very close to the shutoff region, so the pumps will remain off until we return to the ideal range
+      // in this case, we are probably still very close to the shutoff region,
+      // so the pumps will remain off until we return to the ideal range
       break;
     }
   }
+}
 
+void logData()
+{
   Serial.print(currTime);
   Serial.print(",");
   Serial.print(ph);
@@ -372,21 +429,4 @@ void loop()
   Serial.print(",");
   Serial.print(flowRate_4);
   Serial.println();
-}
-
-void Flow1()
-{
-  flowCount_1++;
-}
-void Flow2()
-{
-  flowCount_2++;
-}
-void Flow3()
-{
-  flowCount_3++;
-}
-void Flow4()
-{
-  flowCount_4++;
 }
