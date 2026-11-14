@@ -47,3 +47,15 @@ source venv/bin/activate
 Make sure your microcontroller is plugged in and that the PlatformIO serial monitor is closed. If the PIO monitor is open, the Python script will be blocked from accessing the COM port.
 ```bash
 python your_script_name.py
+```
+
+---
+
+## Troubleshooting: `arduinoq` Build Error on Windows
+If your build crashes with a `UserSideException` stating `arduinoq` does not support `windows_amd64`, PlatformIO is tripping over a globally cached Linux-only platform.
+
+**To fix this:**
+1. Navigate to your global PlatformIO platforms folder: `C:\Users\<YourUsername>\.platformio\platforms`
+2. Delete the `arduinoq` (or `platform-arduinoq`) folder.
+3. In your project folder, delete the hidden `.pio` directory to clear the build cache.
+4. Rebuild the project.
