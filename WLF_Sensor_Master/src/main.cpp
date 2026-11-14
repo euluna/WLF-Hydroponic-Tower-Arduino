@@ -171,6 +171,7 @@ unsigned long levelTime = 0; // time when water level event was sensed
 
 // Global variables needed for the refactored helper functions
 unsigned long currTime = 0;
+unsigned long lastRecordTime = 0;
 float waterLevel_1; // <-- NEW Variable to store calculated water level
 float waterLevel_2;
 float avg_level;
@@ -184,16 +185,24 @@ void setup()
 
 void loop()
 {
-  readEnvironment(); // FIX: No longer aborts the loop if this fails
+  currTime = millis(); // Update time at the very start
 
-  readWaterQuality();
   readWaterLevel();
-  processFlowRatesAndDelay();
-
-  currTime = millis(); // current time at end of this iteration, after values level is calculated
-
   updateSystemControls();
-  logData();
+
+  // Runs only every "recordPeriod" (2 seconds)
+  if (currTime - lastRecordTime >= (1000 * recordPeriod))
+  {
+    readEnvironment(); // FIX: No longer aborts the loop if this fails
+    readWaterQuality();
+    processFlowRates();
+    logData();
+
+    lastRecordTime = currTime; // Reset the timer
+  }
+
+  // Small delay to prevent ultrasonic echo overlap
+  delay(50);
 }
 
 // ==========================================
@@ -307,23 +316,31 @@ void readWaterLevel()
   avg_level = (waterLevel_1 + waterLevel_2) / 2; // get average water level
 }
 
-void processFlowRatesAndDelay()
+void processFlowRates()
 {
-  // flow
+  // disable interrupts to safely copy and reset the volatile counters
+  noInterrupts();
+  int count1 = flowCount_1;
   flowCount_1 = 0;
+  int count2 = flowCount_2;
   flowCount_2 = 0;
+  int count3 = flowCount_3;
   flowCount_3 = 0;
+  int count4 = flowCount_4;
   flowCount_4 = 0;
+  interrupts(); // turn back on
 
-  interrupts();               // enable interrupt for recordDelay
-  delay(1000 * recordPeriod); // delay for some number of seconds
-  noInterrupts();             // disable interrupts again
+  // convert total pulses to Frequency (Hz) based on elapsed time
+  float hz_1 = (float)count1 / recordPeriod;
+  float hz_2 = (float)count2 / recordPeriod;
+  float hz_3 = (float)count3 / recordPeriod;
+  float hz_4 = (float)count4 / recordPeriod;
 
-  // since F=(5.5*Q), Q = F/5.5, where Q is in L/min and F is in Hz
-  flowRate_1 = flowCount_1 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
-  flowRate_2 = flowCount_2 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
-  flowRate_3 = flowCount_3 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
-  flowRate_4 = flowCount_4 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
+  // calculate L/min (Q = F / 5.5)
+  flowRate_1 = hz_1 / flowSensorConstant;
+  flowRate_2 = hz_2 / flowSensorConstant;
+  flowRate_3 = hz_3 / flowSensorConstant;
+  flowRate_4 = hz_4 / flowSensorConstant;
 }
 
 void updateSystemControls()
