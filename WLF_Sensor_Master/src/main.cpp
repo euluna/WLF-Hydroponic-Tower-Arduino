@@ -159,8 +159,50 @@ void Flow1();
 void Flow2();
 void Flow3();
 void Flow4();
+void initHardware();
+bool readEnvironment();
+void readWaterQuality();
+void readWaterLevel();
+void processFlowRatesAndDelay();
+void updateSystemControls();
+void logData();
+
+unsigned long levelTime = 0; // time when water level event was sensed
+
+// Global variables needed for the refactored helper functions
+unsigned long currTime = 0;
+float waterLevel_1; // <-- NEW Variable to store calculated water level
+float waterLevel_2;
+float avg_level;
 
 void setup()
+{
+  initHardware();
+  if (printLabels)
+    Serial.println("Time (ms), PH, Light (lx), Humidity (%), Ambient Temp (°C), Liquid Temp (°C), TDS (ppm), Water Level 1 (cm), Water Level 2 (cm), Flow Rate 1 (L/min), Flow Rate 2 (L/min), Flow Rate 3 (L/min)"); // CSV header
+}
+
+void loop()
+{
+  // repeat loop early if failed read
+  if (!readEnvironment())
+    return;
+
+  readWaterQuality();
+  readWaterLevel();
+  processFlowRatesAndDelay();
+
+  currTime = millis(); // current time at end of this iteration, after values level is calculated
+
+  updateSystemControls();
+  logData();
+}
+
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
+void initHardware()
 {
   // Initialize the flow sensors
   pinMode(flowPin_1, INPUT); // set input pins
@@ -195,36 +237,31 @@ void setup()
   pinMode(ECHO_2, INPUT);  // Echo is input
   // pullup resistor temp sensor
   pinMode(ONE_WIRE_BUS, INPUT_PULLUP);
-  if (printLabels)
-    Serial.println("Time (ms), PH, Light (lx), Humidity (%), Ambient Temp (°C), Liquid Temp (°C), TDS (ppm), Water Level 1 (cm), Water Level 2 (cm), Flow Rate 1 (L/min), Flow Rate 2 (L/min), Flow Rate 3 (L/min)"); // CSV header
 }
 
-unsigned long levelTime = 0; // time when water level event was sensed
-
-void loop()
+bool readEnvironment()
 {
   humPercent = dht.readHumidity();
   ambTemp = dht.readTemperature();
 
   // repeat loop early if failed read
   if (isnan(humPercent) || isnan(ambTemp))
-    return;
+    return false;
 
   // light
   lux_1 = lightMeter_1.readLightLevel();
   // lux_2 = lightMeter_2.readLightLevel();
   // lux_3 = lightMeter_3.readLightLevel();
 
+  return true;
+}
+
+void readWaterQuality()
+{
   // ph
   int sensorValue = analogRead(phPin);
   phVolt = sensorValue * (5.0 / 1023.0); // convert reading to voltage
   ph = slope * phVolt + offset;
-
-  // flow
-  flowCount_1 = 0;
-  flowCount_2 = 0;
-  flowCount_3 = 0;
-  flowCount_4 = 0;
 
   // temp sensor
   sensors.requestTemperatures();
@@ -234,15 +271,14 @@ void loop()
   tdsOutput = analogRead(tdsPin);
   voltagetds = tdsOutput * (5.0 / 1023.0);
   ppm = (voltagetds * 1000 / 500) * 1.1;
+}
 
-  // waterlevel Sensor
+void readWaterLevel()
+{
   long duration_1;
   long duration_2;
   float distance_1;
   float distance_2;
-  float waterLevel_1; // <-- NEW Variable to store calculated water level
-  float waterLevel_2;
-  float avg_level;
 
   // Trigger ultrasonic pulse
   digitalWrite(TRIG_1, LOW); // when pin is low no sound is emitted
@@ -267,6 +303,16 @@ void loop()
   // -------------------------------------------------------------
   waterLevel_1 = tankHeight_1 - distance_1; // <-- NEW
   waterLevel_2 = tankHeight_2 - distance_2;
+  avg_level = (waterLevel_1 + waterLevel_2) / 2; // get average water level
+}
+
+void processFlowRatesAndDelay()
+{
+  // flow
+  flowCount_1 = 0;
+  flowCount_2 = 0;
+  flowCount_3 = 0;
+  flowCount_4 = 0;
 
   interrupts();               // enable interrupt for recordDelay
   delay(1000 * recordPeriod); // delay for some number of seconds
@@ -277,13 +323,12 @@ void loop()
   flowRate_2 = flowCount_2 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
   flowRate_3 = flowCount_3 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
   flowRate_4 = flowCount_4 / flowSensorConstant; // since count is # of pulses in last second, count is F in Hz
+}
 
-  unsigned long currTime = millis(); // current time at end of this iteration, after values level is calculated
-
+void updateSystemControls()
+{
   // ---------------------------------------------------------- SYSTEM CONTROLS -------------------------------------------------------
   // Send power to / away from hardware as needed
-
-  avg_level = (waterLevel_1 + waterLevel_2) / 2; // get average water level
 
   if (avg_level >= maxLevel || avg_level <= minLevel) // we are above max level, or below min level
   {
@@ -345,7 +390,10 @@ void loop()
       break;
     }
   }
+}
 
+void logData()
+{
   Serial.print(currTime);
   Serial.print(",");
   Serial.print(ph);
