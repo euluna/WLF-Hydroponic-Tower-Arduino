@@ -300,13 +300,22 @@ void readWaterLevel()
   digitalWrite(TRIG_1, LOW); // ends pulse
   digitalWrite(TRIG_2, LOW); // ends pulse
 
-  // Measure return time
-  duration_1 = pulseIn(ECHO_1, HIGH); // pulseIn() function measures time in this case the time for which the echo pin is high
-  duration_2 = pulseIn(ECHO_2, HIGH);
+  // Measure return time with a 10,000 microsecond (10ms) timeout
+  duration_1 = pulseIn(ECHO_1, HIGH, 10000); // pulseIn() function measures time in this case the time for which the echo pin is high
+  duration_2 = pulseIn(ECHO_2, HIGH, 10000);
 
   // Convert to distance (in cm)
-  distance_1 = duration_1 * 0.034 / 2; // 0.034 is the speed of sound  in cm per mircosecond
-  distance_2 = duration_2 * 0.034 / 2;
+  // 0.034 is the speed of sound  in cm per mircosecond
+  if (duration_1 > 0)
+  {
+    distance_1 = duration_1 * 0.034 / 2;
+    waterLevel_1 = tankHeight_1 - distance_1;
+  }
+  if (duration_2 > 0)
+  {
+    distance_2 = duration_2 * 0.034 / 2;
+    waterLevel_2 = tankHeight_2 - distance_2;
+  }
 
   // -------------------------------------------------------------
   // NEW: Calculate the actual water level in the reservoir
