@@ -302,7 +302,7 @@ void readWaterLevel()
 
   // Measure return time with a 10,000 microsecond (10ms) timeout
   duration_1 = pulseIn(ECHO_1, HIGH, 10000); // pulseIn() function measures time in this case the time for which the echo pin is high
-  duration_2 = pulseIn(ECHO_2, HIGH, 10000);
+  duration_2 = pulseIn(ECHO_2, HIGH, 10000); // pulseIn() waits up to 1 second. set limit to stop blocking
 
   // -------------------------------------------------------------
   // NEW: Calculate the actual water level in the reservoir
