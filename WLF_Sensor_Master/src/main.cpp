@@ -237,6 +237,7 @@ void initHardware()
   dht.begin();
   // initialize tds
   sensors.begin();
+  sensors.setWaitForConversion(false); // <-- NEW: Makes temp requests non-blocking
   // waterlevel
   pinMode(TRIG_1, OUTPUT); // sound pulse is output
   pinMode(ECHO_1, INPUT);  // Echo is input
@@ -274,6 +275,8 @@ void readWaterQuality()
   ph = slope * phVolt + offset;
 
   // temp sensor
+  // Because we set waitForConversion(false), this instantly asks for a new reading
+  // and gets the result of the LAST reading without freezing the board.
   sensors.requestTemperatures();
   tempC = sensors.getTempCByIndex(0); // read first sensor
 
