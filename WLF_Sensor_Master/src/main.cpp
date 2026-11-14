@@ -304,12 +304,14 @@ void readWaterLevel()
   duration_1 = pulseIn(ECHO_1, HIGH, 10000); // pulseIn() function measures time in this case the time for which the echo pin is high
   duration_2 = pulseIn(ECHO_2, HIGH, 10000);
 
-  // Convert to distance (in cm)
-  // 0.034 is the speed of sound  in cm per mircosecond
+  // -------------------------------------------------------------
+  // NEW: Calculate the actual water level in the reservoir
+  // -------------------------------------------------------------
+  // Convert to distance (in cm). 0.034 is the speed of sound  in cm per mircosecond
   if (duration_1 > 0)
   {
     distance_1 = duration_1 * 0.034 / 2;
-    waterLevel_1 = tankHeight_1 - distance_1;
+    waterLevel_1 = tankHeight_1 - distance_1; // <-- NEW
   }
   if (duration_2 > 0)
   {
@@ -317,11 +319,6 @@ void readWaterLevel()
     waterLevel_2 = tankHeight_2 - distance_2;
   }
 
-  // -------------------------------------------------------------
-  // NEW: Calculate the actual water level in the reservoir
-  // -------------------------------------------------------------
-  waterLevel_1 = tankHeight_1 - distance_1; // <-- NEW
-  waterLevel_2 = tankHeight_2 - distance_2;
   avg_level = (waterLevel_1 + waterLevel_2) / 2; // get average water level
 }
 
