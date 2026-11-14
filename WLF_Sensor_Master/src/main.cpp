@@ -160,7 +160,7 @@ void Flow2();
 void Flow3();
 void Flow4();
 void initHardware();
-bool readEnvironment();
+void readEnvironment();
 void readWaterQuality();
 void readWaterLevel();
 void processFlowRatesAndDelay();
@@ -184,9 +184,7 @@ void setup()
 
 void loop()
 {
-  // repeat loop early if failed read
-  if (!readEnvironment())
-    return;
+  readEnvironment(); // FIX: No longer aborts the loop if this fails
 
   readWaterQuality();
   readWaterLevel();
@@ -239,21 +237,24 @@ void initHardware()
   pinMode(ONE_WIRE_BUS, INPUT_PULLUP);
 }
 
-bool readEnvironment()
+void readEnvironment()
 {
   humPercent = dht.readHumidity();
   ambTemp = dht.readTemperature();
 
-  // repeat loop early if failed read
+  // FIX:
+  // If the DHT fails, we log it and exit THIS function early,
+  // but we allow the rest of the system (like water shutoffs) to keep running.
   if (isnan(humPercent) || isnan(ambTemp))
-    return false;
+  {
+    // Serial.println("DHT Read Error");
+    return;
+  }
 
   // light
   lux_1 = lightMeter_1.readLightLevel();
   // lux_2 = lightMeter_2.readLightLevel();
   // lux_3 = lightMeter_3.readLightLevel();
-
-  return true;
 }
 
 void readWaterQuality()
